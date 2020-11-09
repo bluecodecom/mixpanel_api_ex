@@ -30,8 +30,8 @@ defmodule Mixpanel.QueueTest do
   end
 
   defp new_with_list(list, max) do
-    Enum.reduce(list, Queue.new(), fn item, queue ->
-      case Queue.push(queue, item, max) do
+    Enum.reduce(list, Queue.new(max), fn item, queue ->
+      case Queue.push(queue, item) do
         {:ok, queue} ->
           queue
 

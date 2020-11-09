@@ -48,12 +48,14 @@ defmodule Mixpanel.Client do
   def init({:ok, opts}) do
     config = Enum.into(opts, @defaults)
 
-    queues = %{
-      track: Queue.new(),
-      engage: Queue.new()
+    state = %{
+      track: Queue.new(config.max_queue_track),
+      engage: Queue.new(config.max_queue_engage),
+      track_dropped: 0,
+      engage_dropped: 0
     }
 
-    {:ok, {config, queues}}
+    {:ok, {config, state}}
   end
 
   # No events submitted when env configuration is set to false.
@@ -62,10 +64,10 @@ defmodule Mixpanel.Client do
   end
 
   def handle_cast({:track, _event, _properties} = event, {config, state}) do
-    case Queue.push(state.track, event, config.max_queue_track) do
+    case Queue.push(state.track, event) do
       :dropped ->
-        :telemetry.execute([:mixpanel, :dropped, :track], %{count: 1})
-        {:noreply, {config, state}, 0}
+        new_state = Map.update!(state, :track_dropped, &(&1 + 1))
+        {:noreply, {config, new_state}, 0}
 
       {:ok, queue} ->
         timeout =
@@ -80,10 +82,10 @@ defmodule Mixpanel.Client do
   end
 
   def handle_cast({:engage, _event} = event, {config, state}) do
-    case Queue.push(state.engage, event, config.max_queue_engage) do
+    case Queue.push(state.engage, event) do
       :dropped ->
-        :telemetry.execute([:mixpanel, :dropped, :engage], %{count: 1})
-        {:noreply, {config, state}, 0}
+        new_state = Map.update!(state, :engage_dropped, &(&1 + 1))
+        {:noreply, {config, new_state}, 0}
 
       {:ok, queue} ->
         timeout =
@@ -100,6 +102,7 @@ defmodule Mixpanel.Client do
   def handle_info(:timeout, {%{batch_size: batch_size} = config, state}) do
     new_state =
       state
+      |> report_dropped()
       |> engage_batch(batch_size, config.token)
       |> track_batch(batch_size, config.token)
 
@@ -113,6 +116,20 @@ defmodule Mixpanel.Client do
       _ ->
         {:noreply, {config, new_state}, config.max_idle}
     end
+  end
+
+  defp report_dropped(%{track_dropped: 0, engage_dropped: 0} = state) do
+    state
+  end
+
+  defp report_dropped(%{track_dropped: count} = state) when count > 0 do
+    :telemetry.execute([:mixpanel, :dropped, :track], %{count: count})
+    report_dropped(%{state | track_dropped: 0})
+  end
+
+  defp report_dropped(%{engage_dropped: count} = state) when count > 0 do
+    :telemetry.execute([:mixpanel, :dropped, :engage], %{count: count})
+    report_dropped(%{state | engage_dropped: 0})
   end
 
   defp track_batch(state, batch_size, token) do

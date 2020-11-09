@@ -8,7 +8,14 @@ defmodule MixpanelTest do
   end
 
   setup do
-    config = Application.get_env(:mixpanel_api_ex, :mixpanel)
+    config = [
+      active: true,
+      token: "",
+      max_idle: 75,
+      batch_size: 3,
+      max_queue_track: 5,
+      max_queue_engage: 5
+    ]
     pid = start_supervised!({Mixpanel.Client, config})
 
     {:ok, pid: pid}
@@ -62,7 +69,7 @@ defmodule MixpanelTest do
 
         assert_receive {[:mixpanel, :batch, :track, :start], _, _}
         assert_receive {[:mixpanel, :batch, :track, :stop], _, _}
-        assert_receive {[:mixpanel, :dropped, :track], %{count: 1}, _}
+        assert_receive {[:mixpanel, :dropped, :track], %{count: 5}, _}
       end
     end
   end
@@ -115,7 +122,7 @@ defmodule MixpanelTest do
 
         assert_receive {[:mixpanel, :batch, :engage, :start], _, _}
         assert_receive {[:mixpanel, :batch, :engage, :stop], _, _}
-        assert_receive {[:mixpanel, :dropped, :engage], %{count: 1}, _}
+        assert_receive {[:mixpanel, :dropped, :engage], %{count: 5}, _}
       end
     end
   end
