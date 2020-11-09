@@ -2,14 +2,24 @@ defmodule Mixpanel.Client do
   use GenServer
 
   @moduledoc """
-
-
+  Mixpanel batch API client
   """
 
   require Logger
 
+  alias Mixpanel.Queue
+
   @track_endpoint "https://api.mixpanel.com/track"
   @engage_endpoint "https://api.mixpanel.com/engage"
+
+  @headers [{"Content-Type", "application/x-www-form-urlencoded"}]
+
+  @defaults %{
+    max_queue_track: 200,
+    max_queue_engage: 500,
+    batch_size: 50,
+    max_idle: 500
+  }
 
   def start_link(config, opts \\ []) do
     GenServer.start_link(__MODULE__, {:ok, config}, opts)
@@ -35,53 +45,140 @@ defmodule Mixpanel.Client do
     GenServer.cast(process || __MODULE__, {:engage, event})
   end
 
-  def init({:ok, config}) do
-    {:ok, Enum.into(config, %{})}
+  def init({:ok, opts}) do
+    config = Enum.into(opts, @defaults)
+
+    queues = %{
+      track: Queue.new(),
+      engage: Queue.new()
+    }
+
+    {:ok, {config, queues}}
   end
 
   # No events submitted when env configuration is set to false.
-  def handle_cast(_request, %{active: false} = state) do
+  def handle_cast(_request, {%{active: false}, _} = state) do
     {:noreply, state}
   end
 
-  def handle_cast({:track, event, properties}, %{token: token} = state) do
-    data =
-      %{event: event, properties: Map.put(properties, :token, token)}
-      |> Poison.encode!()
-      |> :base64.encode()
+  def handle_cast({:track, _event, _properties} = event, {config, state}) do
+    case Queue.push(state.track, event, config.max_queue_track) do
+      :dropped ->
+        :telemetry.execute([:mixpanel, :dropped, :track], %{count: 1})
+        {:noreply, {config, state}, 0}
 
-    case HTTPoison.get(@track_endpoint, [], params: [data: data]) do
+      {:ok, queue} ->
+        timeout =
+          if Queue.length(queue) >= config.batch_size do
+            0
+          else
+            config.max_idle
+          end
+
+        {:noreply, {config, %{state | track: queue}}, timeout}
+    end
+  end
+
+  def handle_cast({:engage, _event} = event, {config, state}) do
+    case Queue.push(state.engage, event, config.max_queue_engage) do
+      :dropped ->
+        :telemetry.execute([:mixpanel, :dropped, :engage], %{count: 1})
+        {:noreply, {config, state}, 0}
+
+      {:ok, queue} ->
+        timeout =
+          if Queue.length(queue) >= config.batch_size do
+            0
+          else
+            config.max_idle
+          end
+
+        {:noreply, {config, %{state | engage: queue}}, timeout}
+    end
+  end
+
+  def handle_info(:timeout, {%{batch_size: batch_size} = config, state}) do
+    new_state =
+      state
+      |> engage_batch(batch_size, config.token)
+      |> track_batch(batch_size, config.token)
+
+    case {Queue.length(new_state.track), Queue.length(new_state.engage)} do
+      {0, 0} ->
+        {:noreply, {config, new_state}}
+
+      {len1, len2} when len1 >= batch_size or len2 >= batch_size ->
+        {:noreply, {config, new_state}, 0}
+
+      _ ->
+        {:noreply, {config, new_state}, config.max_idle}
+    end
+  end
+
+  defp track_batch(state, batch_size, token) do
+    case Queue.take(state.track, batch_size) do
+      {:ok, [], _queue} ->
+        state
+
+      {:ok, batch, queue} ->
+        send_batch(@track_endpoint, Enum.map(batch, &encode_track(&1, token)), [
+          :mixpanel,
+          :batch,
+          :track
+        ])
+
+        %{state | track: queue}
+    end
+  end
+
+  defp engage_batch(state, batch_size, token) do
+    case Queue.take(state.engage, batch_size) do
+      {:ok, [], _queue} ->
+        state
+
+      {:ok, batch, queue} ->
+        send_batch(@engage_endpoint, Enum.map(batch, &encode_engage(&1, token)), [
+          :mixpanel,
+          :batch,
+          :engage
+        ])
+
+        %{state | engage: queue}
+    end
+  end
+
+  defp encode_track({:track, event, properties}, token) do
+    %{
+      event: event,
+      properties: Map.put(properties, :token, token)
+    }
+  end
+
+  defp encode_engage({:engage, event}, token) do
+    Map.put(event, "$token", token)
+  end
+
+  defp send_batch(endpoint, batch, telemetry_event) do
+    telemetry_metadata = %{count: length(batch)}
+
+    data =
+      batch
+      |> Jason.encode!()
+      |> URI.encode_www_form()
+
+    :telemetry.span(telemetry_event, telemetry_metadata, fn ->
+      result = http_post(endpoint, @headers, "data=" <> data)
+      {result, telemetry_metadata}
+    end)
+  end
+
+  defp http_post(url, headers, body) do
+    case HTTPoison.post(url, body, headers) do
       {:ok, %HTTPoison.Response{status_code: 200, body: "1"}} ->
         :ok
 
       other ->
-        Logger.warn(
-          "Problem tracking Mixpanel event: #{inspect(event)}, #{inspect(properties)} Got: #{
-            inspect(other)
-          }"
-        )
+        Logger.warn("Problem tracking Mixpanel engagements: #{inspect other}")
     end
-
-    {:noreply, state}
-  end
-
-  def handle_cast({:engage, event}, %{token: token} = state) do
-    data =
-      event
-      |> Map.put(:"$token", token)
-      |> Poison.encode!()
-      |> :base64.encode()
-
-    case HTTPoison.get(@engage_endpoint, [], params: [data: data]) do
-      {:ok, %HTTPoison.Response{status_code: 200, body: "1"}} ->
-        :ok
-
-      other ->
-        Logger.warn(
-          "Problem tracking Mixpanel profile update: #{inspect(event)} Got: #{inspect(other)}"
-        )
-    end
-
-    {:noreply, state}
   end
 end
