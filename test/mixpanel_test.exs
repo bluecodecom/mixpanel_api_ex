@@ -3,9 +3,7 @@ defmodule MixpanelTest do
 
   import Mock
 
-  defmodule Sample do
-    use Mixpanel, otp_app: :mixpanel_api_ex
-  end
+  @events [[:mixpanel, :batch, :start], [:mixpanel, :batch, :stop], [:mixpanel, :dropped]]
 
   setup do
     config = [
@@ -53,23 +51,14 @@ defmodule MixpanelTest do
     end
 
     test "telemetry", %{pid: pid} do
-      :telemetry.attach_many(
-        make_ref(),
-        [
-          [:mixpanel, :batch, :track, :start],
-          [:mixpanel, :batch, :track, :stop],
-          [:mixpanel, :dropped, :track]
-        ],
-        &forward_telemetry/4,
-        self()
-      )
+      :telemetry.attach_many(make_ref(), @events, &forward_telemetry/4, self())
 
       with_mock HTTPoison, post: &mock_post/3 do
         for _ <- 1..10, do: track(pid)
 
-        assert_receive {[:mixpanel, :batch, :track, :start], _, _}
-        assert_receive {[:mixpanel, :batch, :track, :stop], _, _}
-        assert_receive {[:mixpanel, :dropped, :track], %{count: 5}, _}
+        assert_receive {[:mixpanel, :batch, :start], _, _}
+        assert_receive {[:mixpanel, :batch, :stop], _, _}
+        assert_receive {[:mixpanel, :dropped], %{count: 5}, _}
       end
     end
   end
@@ -106,23 +95,14 @@ defmodule MixpanelTest do
     end
 
     test "engagement telemetry", %{pid: pid} do
-      :telemetry.attach_many(
-        make_ref(),
-        [
-          [:mixpanel, :batch, :engage, :start],
-          [:mixpanel, :batch, :engage, :stop],
-          [:mixpanel, :dropped, :engage]
-        ],
-        &forward_telemetry/4,
-        self()
-      )
+      :telemetry.attach_many(make_ref(), @events, &forward_telemetry/4, self())
 
       with_mock HTTPoison, post: &mock_post/3 do
         for _ <- 1..10, do: engage(pid)
 
-        assert_receive {[:mixpanel, :batch, :engage, :start], _, _}
-        assert_receive {[:mixpanel, :batch, :engage, :stop], _, _}
-        assert_receive {[:mixpanel, :dropped, :engage], %{count: 5}, _}
+        assert_receive {[:mixpanel, :batch, :start], _, _}
+        assert_receive {[:mixpanel, :batch, :stop], _, _}
+        assert_receive {[:mixpanel, :dropped], %{count: 5}, _}
       end
     end
   end

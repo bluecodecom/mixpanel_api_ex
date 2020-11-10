@@ -119,12 +119,12 @@ defmodule Mixpanel.Client do
   end
 
   defp report_dropped(%{track_dropped: count} = state) when count > 0 do
-    :telemetry.execute([:mixpanel, :dropped, :track], %{count: count})
+    :telemetry.execute([:mixpanel, :dropped], %{count: count}, %{type: :track})
     report_dropped(%{state | track_dropped: 0})
   end
 
   defp report_dropped(%{engage_dropped: count} = state) when count > 0 do
-    :telemetry.execute([:mixpanel, :dropped, :engage], %{count: count})
+    :telemetry.execute([:mixpanel, :dropped], %{count: count}, %{type: :engage})
     report_dropped(%{state | engage_dropped: 0})
   end
 
@@ -134,12 +134,7 @@ defmodule Mixpanel.Client do
         state
 
       {batch, queue} ->
-        send_batch(@track_endpoint, Enum.map(batch, &encode_track(&1, token)), [
-          :mixpanel,
-          :batch,
-          :track
-        ])
-
+        send_batch(@track_endpoint, Enum.map(batch, &encode_track(&1, token)), :track)
         %{state | track: queue}
     end
   end
@@ -150,12 +145,7 @@ defmodule Mixpanel.Client do
         state
 
       {batch, queue} ->
-        send_batch(@engage_endpoint, Enum.map(batch, &encode_engage(&1, token)), [
-          :mixpanel,
-          :batch,
-          :engage
-        ])
-
+        send_batch(@engage_endpoint, Enum.map(batch, &encode_engage(&1, token)), :engage)
         %{state | engage: queue}
     end
   end
@@ -171,27 +161,28 @@ defmodule Mixpanel.Client do
     Map.put(event, "$token", token)
   end
 
-  defp send_batch(endpoint, batch, telemetry_event) do
-    telemetry_metadata = %{count: length(batch)}
+  defp send_batch(endpoint, batch, type) do
+    telemetry_metadata = %{type: type, count: length(batch)}
 
     data =
       batch
       |> Jason.encode!()
       |> URI.encode_www_form()
 
-    :telemetry.span(telemetry_event, telemetry_metadata, fn ->
-      result = http_post(endpoint, @headers, "data=" <> data)
-      {result, telemetry_metadata}
+    :telemetry.span([:mixpanel, :batch], telemetry_metadata, fn ->
+      success? = http_post(endpoint, @headers, "data=" <> data)
+      {success?, Map.put(telemetry_metadata, :success, success?)}
     end)
   end
 
   defp http_post(url, headers, body) do
     case HTTPoison.post(url, body, headers) do
       {:ok, %HTTPoison.Response{status_code: 200, body: "1"}} ->
-        :ok
+        true
 
       other ->
         Logger.warn("Problem tracking Mixpanel engagements: #{inspect other}")
+        false
     end
   end
 end
