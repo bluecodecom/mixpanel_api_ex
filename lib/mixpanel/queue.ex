@@ -1,5 +1,7 @@
 defmodule Mixpanel.Queue do
-  def new(limit), do: {0, limit, [], []}
+  def new(limit) when limit > 0 do
+    {0, limit, [], []}
+  end
 
   def push({len, limit, _, _}, _item) when len >= limit do
     :dropped
@@ -12,10 +14,10 @@ defmodule Mixpanel.Queue do
   def take({len, limit, [], head}, max) do
     case Enum.split(head, max) do
       {result, []} ->
-        {:ok, result, {0, limit, [], []}}
+        {result, {0, limit, [], []}}
 
       {result, new_head} ->
-        {:ok, result, {len - max, limit, [], new_head}}
+        {result, {len - max, limit, [], new_head}}
     end
   end
 

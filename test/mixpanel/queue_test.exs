@@ -43,10 +43,10 @@ defmodule Mixpanel.QueueTest do
 
   defp take_all(queue, batch_size, acc \\ []) do
     case Queue.take(queue, batch_size) do
-      {:ok, [], _} ->
+      {[], _} ->
         Enum.reverse(acc)
 
-      {:ok, batch, queue} ->
+      {batch, queue} ->
         take_all(queue, batch_size, [batch | acc])
     end
   end

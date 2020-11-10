@@ -70,13 +70,7 @@ defmodule Mixpanel.Client do
         {:noreply, {config, new_state}, 0}
 
       {:ok, queue} ->
-        timeout =
-          if Queue.length(queue) >= config.batch_size do
-            0
-          else
-            config.max_idle
-          end
-
+        timeout = receive_timeout(queue, config)
         {:noreply, {config, %{state | track: queue}}, timeout}
     end
   end
@@ -88,13 +82,7 @@ defmodule Mixpanel.Client do
         {:noreply, {config, new_state}, 0}
 
       {:ok, queue} ->
-        timeout =
-          if Queue.length(queue) >= config.batch_size do
-            0
-          else
-            config.max_idle
-          end
-
+        timeout = receive_timeout(queue, config)
         {:noreply, {config, %{state | engage: queue}}, timeout}
     end
   end
@@ -118,6 +106,14 @@ defmodule Mixpanel.Client do
     end
   end
 
+  defp receive_timeout(queue, config) do
+    if Queue.length(queue) >= config.batch_size do
+      0
+    else
+      config.max_idle
+    end
+  end
+
   defp report_dropped(%{track_dropped: 0, engage_dropped: 0} = state) do
     state
   end
@@ -134,10 +130,10 @@ defmodule Mixpanel.Client do
 
   defp track_batch(state, batch_size, token) do
     case Queue.take(state.track, batch_size) do
-      {:ok, [], _queue} ->
+      {[], _queue} ->
         state
 
-      {:ok, batch, queue} ->
+      {batch, queue} ->
         send_batch(@track_endpoint, Enum.map(batch, &encode_track(&1, token)), [
           :mixpanel,
           :batch,
@@ -150,10 +146,10 @@ defmodule Mixpanel.Client do
 
   defp engage_batch(state, batch_size, token) do
     case Queue.take(state.engage, batch_size) do
-      {:ok, [], _queue} ->
+      {[], _queue} ->
         state
 
-      {:ok, batch, queue} ->
+      {batch, queue} ->
         send_batch(@engage_endpoint, Enum.map(batch, &encode_engage(&1, token)), [
           :mixpanel,
           :batch,
