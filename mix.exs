@@ -1,7 +1,7 @@
 defmodule Mixpanel.Mixfile do
   use Mix.Project
 
-  @version "2.0.0"
+  @version "2.1.0"
 
   def project do
     [
@@ -48,7 +48,7 @@ defmodule Mixpanel.Mixfile do
     [
       {:httpoison, "~> 0.13"},
       {:jason, "~> 1.0"},
-      {:telemetry, "~> 0.4"},
+      {:telemetry, "~> 1.0"},
       {:credo, "~> 0.2", only: :dev},
       {:dogma, "~> 0.0", only: :dev},
       {:dialyxir, "~> 0.3", only: :dev},
