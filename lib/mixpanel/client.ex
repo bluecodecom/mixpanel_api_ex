@@ -9,8 +9,8 @@ defmodule Mixpanel.Client do
 
   alias Mixpanel.Queue
 
-  @track_endpoint "https://api.mixpanel.com/track"
-  @engage_endpoint "https://api.mixpanel.com/engage"
+  @track_endpoint "https://client-events.spt-payments.mobi/proxy/track"
+  @engage_endpoint "https://client-events.spt-payments.mobi/proxy/engage"
 
   @headers [{"Content-Type", "application/x-www-form-urlencoded"}]
 
