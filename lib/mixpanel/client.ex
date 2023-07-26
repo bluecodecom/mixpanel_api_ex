@@ -9,8 +9,7 @@ defmodule Mixpanel.Client do
 
   alias Mixpanel.Queue
 
-  @track_endpoint "https://client-events.spt-payments.mobi/proxy/track"
-  @engage_endpoint "https://client-events.spt-payments.mobi/proxy/engage"
+  @mixpanel_url_base_default "https://api.mixpanel.com"
 
   @headers [{"Content-Type", "application/x-www-form-urlencoded"}]
 
@@ -147,7 +146,7 @@ defmodule Mixpanel.Client do
 
       {batch, queue} ->
         encoded = Enum.map(batch, &encode_track(&1, config.token))
-        send_batch(@track_endpoint, encoded, :track, config.app)
+        send_batch(track_endpoint(), encoded, :track, config.app)
 
         %{state | track: queue}
     end
@@ -160,7 +159,7 @@ defmodule Mixpanel.Client do
 
       {batch, queue} ->
         encoded = Enum.map(batch, &encode_engage(&1, config.token))
-        send_batch(@engage_endpoint, encoded, :engage, config.app)
+        send_batch(engage_endpoint(), encoded, :engage, config.app)
 
         %{state | engage: queue}
     end
@@ -214,5 +213,27 @@ defmodule Mixpanel.Client do
         Logger.warn("Problem tracking Mixpanel engagements: #{inspect(other)}")
         false
     end
+  end
+
+  defp track_endpoint do
+    url_base() <> "/track"
+  end
+
+  defp engage_endpoint do
+    url_base() <> "/engage"
+  end
+
+  defp url_base do
+    System.get_env("MIXPANEL_URL_BASE")
+    |> case do
+      nil -> default_url_base()
+      "" -> default_url_base()
+      url_base -> url_base
+    end
+  end
+
+  defp default_url_base do
+    Logger.error("MIXPANEL_URL_BASE not set. Using default: #{@mixpanel_url_base_default}")
+    @mixpanel_url_base_default
   end
 end
