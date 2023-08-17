@@ -233,7 +233,7 @@ defmodule Mixpanel.Client do
   end
 
   defp default_url_base do
-    Logger.error("MIXPANEL_URL_BASE not set. Using default: #{@mixpanel_url_base_default}")
+    Logger.info("MIXPANEL_URL_BASE not set. Using default: #{@mixpanel_url_base_default}")
     @mixpanel_url_base_default
   end
 end
