@@ -46,7 +46,7 @@ defmodule Mixpanel.Mixfile do
 
   defp deps do
     [
-      {:httpoison, "~> 0.13"},
+      {:httpoison, ">= 0.13"},
       {:jason, "~> 1.0"},
       {:telemetry, "~> 1.0"},
       {:credo, "~> 0.2", only: :dev},
